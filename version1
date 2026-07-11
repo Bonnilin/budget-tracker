@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>月度預算追蹤器</title>
+<style>
+  :root{
+    --bg:#F5F6F4; --card:#FFFFFF; --border:#E2E4DF; --border-strong:#C7CAC2;
+    --text:#23261F; --text-sec:#63665C; --text-muted:#95978C;
+    --accent:#0F6E56; --accent-light:#E1F5EE; --accent-dark:#085041;
+    --danger:#B23A2E; --danger-light:#FBE9E6; --danger-dark:#7A2620;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",PingFangTC,"Microsoft JhengHei",sans-serif;padding:24px;}
+  .wrap{max-width:960px;margin:0 auto;}
+  h1{font-size:20px;font-weight:600;margin:0 0 4px;}
+  .sub{color:var(--text-sec);font-size:13px;margin:0 0 20px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;}
+  .metric{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;}
+  .metric .label{font-size:12px;color:var(--text-sec);margin-bottom:6px;}
+  .metric .value{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;}
+  .metric .value.over{color:var(--danger-dark);}
+  .alert{display:none;background:var(--danger-light);border:1px solid #E8B3AC;color:var(--danger-dark);border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;font-size:13px;line-height:1.6;}
+  .alert.show{display:block;}
+  .alert b{display:block;margin-bottom:4px;font-size:14px;}
+  .panels{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;}
+  .card h2{font-size:14px;font-weight:600;margin:0 0 14px;}
+  .row{display:flex;gap:8px;margin-bottom:10px;}
+  select,input{width:100%;height:34px;border:1px solid var(--border-strong);border-radius:6px;padding:0 10px;font-size:13px;background:#fff;color:var(--text);}
+  input:focus,select:focus{outline:2px solid var(--accent-light);border-color:var(--accent);}
+  label{font-size:12px;color:var(--text-sec);display:block;margin-bottom:4px;}
+  .field{flex:1;}
+  button{height:34px;border-radius:6px;border:1px solid var(--border-strong);background:#fff;color:var(--text);font-size:13px;cursor:pointer;padding:0 14px;}
+  button:hover{background:var(--bg);}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  button.primary:hover{background:var(--accent-dark);}
+  button.ghost{border:none;background:none;color:var(--text-muted);padding:0 6px;height:auto;font-size:12px;}
+  button.ghost:hover{color:var(--danger-dark);background:none;}
+  .catlist{display:flex;flex-direction:column;gap:10px;margin-top:4px;}
+  .catitem{border:1px solid var(--border);border-radius:8px;padding:10px 12px;}
+  .catitem-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
+  .catname{font-size:13px;font-weight:600;}
+  .catname .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;}
+  .catamt{font-size:12px;color:var(--text-sec);font-variant-numeric:tabular-nums;}
+  .catamt.over{color:var(--danger-dark);font-weight:600;}
+  .bar{height:6px;background:var(--bg);border-radius:3px;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:3px;}
+  #chartWrap{position:relative;height:260px;margin-top:6px;}
+  .legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:12px;font-size:12px;color:var(--text-sec);}
+  .legend span{display:inline-flex;align-items:center;gap:5px;}
+  .legend i{width:9px;height:9px;border-radius:2px;display:inline-block;}
+  .empty{color:var(--text-muted);font-size:13px;padding:20px 0;text-align:center;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--text-sec);font-weight:500;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--border);}
+  td{padding:7px 8px;border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums;}
+  td:last-child,th:last-child{text-align:right;}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .toolbar h2{margin:0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>月度預算追蹤器</h1>
+  <p class="sub">依分類設定預算並登記支出，即時查看佔比與超支狀況。資料會自動儲存於此裝置。</p>
+
+  <div id="alertBox" class="alert">
+    <b>⚠ 已超出預算</b>
+    <div id="alertDetail"></div>
+  </div>
+
+  <div class="grid">
+    <div class="metric">
+      <div class="label">本月總預算</div>
+      <div class="value" id="mTotalBudget">NT$ 0</div>
+    </div>
+    <div class="metric">
+      <div class="label">已支出</div>
+      <div class="value" id="mTotalSpent">NT$ 0</div>
+    </div>
+    <div class="metric">
+      <div class="label">剩餘 / 超支</div>
+      <div class="value" id="mRemain">NT$ 0</div>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="card">
+      <h2>設定分類預算</h2>
+      <div class="row">
+        <div class="field">
+          <label>分類名稱</label>
+          <input id="catName" placeholder="例如：餐飲">
+        </div>
+        <div class="field" style="max-width:120px;">
+          <label>月預算 (NT$)</label>
+          <input id="catBudget" type="number" min="0" placeholder="5000">
+        </div>
+      </div>
+      <button class="primary" style="width:100%;" onclick="addCategory()">新增分類</button>
+      <div class="catlist" id="catList"></div>
+    </div>
+
+    <div class="card">
+      <h2>登記支出</h2>
+      <div class="row">
+        <div class="field">
+          <label>分類</label>
+          <select id="expCat"></select>
+        </div>
+        <div class="field" style="max-width:110px;">
+          <label>金額 (NT$)</label>
+          <input id="expAmt" type="number" min="0" placeholder="350">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>日期</label>
+          <input id="expDate" type="date">
+        </div>
+        <div class="field">
+          <label>備註（選填）</label>
+          <input id="expNote" placeholder="例如：午餐">
+        </div>
+      </div>
+      <button class="primary" style="width:100%;" onclick="addExpense()">新增支出</button>
+
+      <div class="toolbar" style="margin-top:16px;">
+        <h2 style="font-size:13px;">近期支出</h2>
+      </div>
+      <table id="expTable">
+        <thead><tr><th>日期</th><th>分類</th><th>備註</th><th>金額</th></tr></thead>
+        <tbody id="expBody"></tbody>
+      </table>
+      <div id="expEmpty" class="empty" style="display:none;">尚無支出紀錄</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="toolbar" style="margin-bottom:0;">
+      <div>
+        <h2 style="margin-bottom:2px;">匯出資料</h2>
+        <p style="font-size:12px;color:var(--text-sec);margin:0;">下載為 Excel 檔，下載時可自行選擇要儲存的資料夾</p>
+      </div>
+      <button class="primary" onclick="exportExcel()">匯出 Excel</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>支出佔比</h2>
+    <div id="chartWrap"><canvas id="pieChart" role="img" aria-label="各分類支出佔比圓餅圖">依分類顯示本月支出金額與佔比。</canvas></div>
+    <div class="legend" id="legend"></div>
+    <div id="chartEmpty" class="empty" style="display:none;">尚未有支出資料</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+const PALETTE = ['#0F6E56','#378ADD','#D85A30','#7F77DD','#D4537E','#639922','#BA7517','#5F5E5A'];
+let data = { categories: [], expenses: [] };
+let chart = null;
+
+function fmt(n){ return 'NT$ ' + Math.round(n).toLocaleString('zh-Hant-TW'); }
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+async function load(){
+  try{
+    const raw = localStorage.getItem('budget-data');
+    if(raw) data = JSON.parse(raw);
+  }catch(e){ /* no existing data */ }
+  if(!data.categories) data.categories = [];
+  if(!data.expenses) data.expenses = [];
+  document.getElementById('expDate').valueAsDate = new Date();
+  render();
+}
+
+async function save(){
+  try{ localStorage.setItem('budget-data', JSON.stringify(data)); }
+  catch(e){ console.error('儲存失敗', e); }
+}
+
+function addCategory(){
+  const name = document.getElementById('catName').value.trim();
+  const budget = parseFloat(document.getElementById('catBudget').value);
+  if(!name || !isFinite(budget) || budget < 0){ alert('請輸入分類名稱與有效預算金額'); return; }
+  data.categories.push({ id: uid(), name, budget });
+  document.getElementById('catName').value='';
+  document.getElementById('catBudget').value='';
+  save(); render();
+}
+
+function removeCategory(id){
+  data.categories = data.categories.filter(c => c.id !== id);
+  data.expenses = data.expenses.filter(e => e.categoryId !== id);
+  save(); render();
+}
+
+function addExpense(){
+  const categoryId = document.getElementById('expCat').value;
+  const amount = parseFloat(document.getElementById('expAmt').value);
+  const date = document.getElementById('expDate').value;
+  const note = document.getElementById('expNote').value.trim();
+  if(!categoryId){ alert('請先新增分類'); return; }
+  if(!isFinite(amount) || amount <= 0){ alert('請輸入有效金額'); return; }
+  data.expenses.push({ id: uid(), categoryId, amount, date: date || new Date().toISOString().slice(0,10), note });
+  document.getElementById('expAmt').value='';
+  document.getElementById('expNote').value='';
+  save(); render();
+}
+
+function removeExpense(id){
+  data.expenses = data.expenses.filter(e => e.id !== id);
+  save(); render();
+}
+
+function spentByCategory(catId){
+  return data.expenses.filter(e => e.categoryId === catId).reduce((s,e)=>s+e.amount,0);
+}
+
+function render(){
+  // dropdown
+  const sel = document.getElementById('expCat');
+  const prev = sel.value;
+  sel.innerHTML = data.categories.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  if(prev) sel.value = prev;
+
+  // category list
+  const catList = document.getElementById('catList');
+  if(data.categories.length===0){
+    catList.innerHTML = '<div class="empty">尚未新增分類</div>';
+  } else {
+    catList.innerHTML = data.categories.map((c,i)=>{
+      const spent = spentByCategory(c.id);
+      const pct = c.budget>0 ? Math.min(100, spent/c.budget*100) : 0;
+      const over = spent > c.budget;
+      const color = PALETTE[i % PALETTE.length];
+      return `<div class="catitem">
+        <div class="catitem-top">
+          <span class="catname"><span class="dot" style="background:${color}"></span>${c.name}</span>
+          <button class="ghost" onclick="removeCategory('${c.id}')" aria-label="刪除分類">刪除</button>
+        </div>
+        <div class="catamt ${over?'over':''}">${fmt(spent)} / ${fmt(c.budget)}${over? '（超支 ' + fmt(spent-c.budget) + '）' : ''}</div>
+        <div class="bar"><div class="bar-fill" style="width:${pct}%;background:${over?'var(--danger)':color}"></div></div>
+      </div>`;
+    }).join('');
+  }
+
+  // metrics
+  const totalBudget = data.categories.reduce((s,c)=>s+c.budget,0);
+  const totalSpent = data.categories.reduce((s,c)=>s+spentByCategory(c.id),0);
+  const remain = totalBudget - totalSpent;
+  document.getElementById('mTotalBudget').textContent = fmt(totalBudget);
+  document.getElementById('mTotalSpent').textContent = fmt(totalSpent);
+  const remainEl = document.getElementById('mRemain');
+  remainEl.textContent = (remain<0? '−':'') + fmt(Math.abs(remain));
+  remainEl.className = 'value' + (remain<0?' over':'');
+
+  // alert
+  const overCats = data.categories.filter(c => spentByCategory(c.id) > c.budget);
+  const alertBox = document.getElementById('alertBox');
+  if(overCats.length>0){
+    alertBox.classList.add('show');
+    document.getElementById('alertDetail').innerHTML = overCats.map(c=>{
+      const s = spentByCategory(c.id);
+      return `${c.name}：已支出 ${fmt(s)}，超出預算 ${fmt(s-c.budget)}`;
+    }).join('<br>');
+  } else {
+    alertBox.classList.remove('show');
+  }
+
+  // expense table (most recent 10)
+  const sorted = [...data.expenses].sort((a,b)=> b.date.localeCompare(a.date));
+  const body = document.getElementById('expBody');
+  const empty = document.getElementById('expEmpty');
+  if(sorted.length===0){
+    body.innerHTML=''; empty.style.display='block';
+  } else {
+    empty.style.display='none';
+    body.innerHTML = sorted.slice(0,10).map(e=>{
+      const cat = data.categories.find(c=>c.id===e.categoryId);
+      return `<tr>
+        <td>${e.date}</td>
+        <td>${cat? cat.name : '（已刪除）'}</td>
+        <td style="color:var(--text-sec)">${e.note||'—'}</td>
+        <td>${fmt(e.amount)} <button class="ghost" onclick="removeExpense('${e.id}')" aria-label="刪除">✕</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  renderChart();
+}
+
+function renderChart(){
+  const withSpend = data.categories.map((c,i)=>({name:c.name, spent: spentByCategory(c.id), color: PALETTE[i%PALETTE.length]})).filter(c=>c.spent>0);
+  const wrap = document.getElementById('chartWrap');
+  const emptyEl = document.getElementById('chartEmpty');
+  const legend = document.getElementById('legend');
+
+  if(withSpend.length===0){
+    wrap.style.display='none'; emptyEl.style.display='block'; legend.innerHTML='';
+    if(chart){ chart.destroy(); chart=null; }
+    return;
+  }
+  wrap.style.display='block'; emptyEl.style.display='none';
+
+  const total = withSpend.reduce((s,c)=>s+c.spent,0);
+  legend.innerHTML = withSpend.map(c=>{
+    const pct = (c.spent/total*100).toFixed(1);
+    return `<span><i style="background:${c.color}"></i>${c.name} ${fmt(c.spent)}（${pct}%）</span>`;
+  }).join('');
+
+  const ctx = document.getElementById('pieChart');
+  if(chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: 'pie',
+    data: {
+      labels: withSpend.map(c=>c.name),
+      datasets: [{ data: withSpend.map(c=>c.spent), backgroundColor: withSpend.map(c=>c.color), borderColor:'#fff', borderWidth:2 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx)=> ctx.label + '：' + fmt(ctx.parsed) + '（' + (ctx.parsed/total*100).toFixed(1) + '%）' } }
+      }
+    }
+  });
+}
+
+function exportExcel(){
+  if(data.categories.length===0 && data.expenses.length===0){
+    alert('目前尚無資料可匯出'); return;
+  }
+  const summaryRows = data.categories.map(c=>{
+    const spent = spentByCategory(c.id);
+    return {
+      '分類': c.name,
+      '月預算': c.budget,
+      '已支出': spent,
+      '剩餘': c.budget - spent,
+      '狀態': spent > c.budget ? '超支' : '正常',
+      '達成率(%)': c.budget>0 ? Math.round(spent/c.budget*1000)/10 : 0
+    };
+  });
+  const expenseRows = [...data.expenses].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>{
+    const cat = data.categories.find(c=>c.id===e.categoryId);
+    return { '日期': e.date, '分類': cat? cat.name : '（已刪除）', '金額': e.amount, '備註': e.note || '' };
+  });
+
+  const wb = XLSX.utils.book_new();
+  const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+  const wsExpense = XLSX.utils.json_to_sheet(expenseRows);
+  XLSX.utils.book_append_sheet(wb, wsSummary, '分類預算彙總');
+  XLSX.utils.book_append_sheet(wb, wsExpense, '支出明細');
+
+  const today = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `月度預算追蹤_${today}.xlsx`);
+}
+
+load();
+</script>
+</body>
+</html>
