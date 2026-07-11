@@ -16,7 +16,8 @@
   .wrap{max-width:960px;margin:0 auto;}
   h1{font-size:20px;font-weight:600;margin:0 0 4px;}
   .sub{color:var(--text-sec);font-size:13px;margin:0 0 20px;}
-  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+  @media (max-width:700px){ .grid{grid-template-columns:1fr 1fr;} }
   .metric{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;}
   .metric .label{font-size:12px;color:var(--text-sec);margin-bottom:6px;}
   .metric .value{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;}
@@ -63,7 +64,8 @@
 <body>
 <div class="wrap">
   <h1>月度預算追蹤器</h1>
-  <p class="sub">依分類設定預算並登記支出，即時查看佔比與超支狀況。資料會自動儲存於此裝置。</p>
+  <p class="sub">設定本月「一整包」總預算並登記支出，即時查看佔比與超支狀況。資料會自動儲存於此裝置。</p>
+  <p class="sub" id="todayDate" style="margin-top:-14px;font-weight:500;"></p>
 
   <div id="alertBox" class="alert">
     <b>⚠ 已超出預算</b>
@@ -83,22 +85,29 @@
       <div class="label">剩餘 / 超支</div>
       <div class="value" id="mRemain">NT$ 0</div>
     </div>
+    <div class="metric">
+      <div class="label">當日可用餘額（每日）</div>
+      <div class="value" id="mDailyRemain">NT$ 0</div>
+    </div>
   </div>
 
   <div class="panels">
     <div class="card">
-      <h2>設定分類預算</h2>
+      <h2>本月總預算</h2>
       <div class="row">
         <div class="field">
-          <label>分類名稱</label>
-          <input id="catName" placeholder="例如：餐飲">
-        </div>
-        <div class="field" style="max-width:120px;">
-          <label>月預算 (NT$)</label>
-          <input id="catBudget" type="number" min="0" placeholder="5000">
+          <label>本月一整包預算 (NT$)</label>
+          <input id="totalBudgetInput" type="number" min="0" placeholder="20000">
         </div>
       </div>
-      <button class="primary" style="width:100%;" onclick="addCategory()">新增分類</button>
+      <button class="primary" style="width:100%;" onclick="setTotalBudget()">儲存總預算</button>
+      <div class="row" style="margin-top:14px;">
+        <div class="field">
+          <label>新增分類（僅用於分類統計，不單獨設預算）</label>
+          <input id="catName" placeholder="例如：餐飲">
+        </div>
+      </div>
+      <button style="width:100%;" onclick="addCategory()">新增分類</button>
       <div class="catlist" id="catList"></div>
     </div>
 
@@ -160,6 +169,18 @@
 <script>
 const PALETTE = ['#0F6E56','#378ADD','#D85A30','#7F77DD','#D4537E','#639922','#BA7517','#5F5E5A'];
 let data = { categories: [], expenses: [] };
+const SEED_DATA = {
+  seedVersion: 'v1-public',
+  totalBudget: 0,
+  categories: [
+    { id: 'c1', name: '餐飲' },
+    { id: 'c2', name: '交通' },
+    { id: 'c3', name: '購物' },
+    { id: 'c4', name: '居家' },
+    { id: 'c5', name: '娛樂' }
+  ],
+  expenses: []
+};
 let chart = null;
 
 function fmt(n){ return 'NT$ ' + Math.round(n).toLocaleString('zh-Hant-TW'); }
@@ -169,8 +190,10 @@ async function load(){
   try{
     const raw = localStorage.getItem('budget-data');
     if(raw) data = JSON.parse(raw);
-  }catch(e){ /* no existing data */ }
+    else data = JSON.parse(JSON.stringify(SEED_DATA));
+  }catch(e){ data = JSON.parse(JSON.stringify(SEED_DATA)); }
   if(!data.categories) data.categories = [];
+  if(typeof data.totalBudget !== "number") data.totalBudget = 0;
   if(!data.expenses) data.expenses = [];
   document.getElementById('expDate').valueAsDate = new Date();
   render();
@@ -183,11 +206,16 @@ async function save(){
 
 function addCategory(){
   const name = document.getElementById('catName').value.trim();
-  const budget = parseFloat(document.getElementById('catBudget').value);
-  if(!name || !isFinite(budget) || budget < 0){ alert('請輸入分類名稱與有效預算金額'); return; }
-  data.categories.push({ id: uid(), name, budget });
+  if(!name){ alert('請輸入分類名稱'); return; }
+  data.categories.push({ id: uid(), name });
   document.getElementById('catName').value='';
-  document.getElementById('catBudget').value='';
+  save(); render();
+}
+
+function setTotalBudget(){
+  const val = parseFloat(document.getElementById('totalBudgetInput').value);
+  if(!isFinite(val) || val < 0){ alert('請輸入有效的預算金額'); return; }
+  data.totalBudget = val;
   save(); render();
 }
 
@@ -226,29 +254,30 @@ function render(){
   sel.innerHTML = data.categories.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
   if(prev) sel.value = prev;
 
-  // category list
+  // category list (spent amount only, no per-category budget)
   const catList = document.getElementById('catList');
+  document.getElementById('totalBudgetInput').value = data.totalBudget || '';
   if(data.categories.length===0){
     catList.innerHTML = '<div class="empty">尚未新增分類</div>';
   } else {
+    const totalSpentForPct = data.categories.reduce((s,c)=>s+spentByCategory(c.id),0) || 1;
     catList.innerHTML = data.categories.map((c,i)=>{
       const spent = spentByCategory(c.id);
-      const pct = c.budget>0 ? Math.min(100, spent/c.budget*100) : 0;
-      const over = spent > c.budget;
+      const pct = Math.min(100, spent/totalSpentForPct*100);
       const color = PALETTE[i % PALETTE.length];
       return `<div class="catitem">
         <div class="catitem-top">
           <span class="catname"><span class="dot" style="background:${color}"></span>${c.name}</span>
           <button class="ghost" onclick="removeCategory('${c.id}')" aria-label="刪除分類">刪除</button>
         </div>
-        <div class="catamt ${over?'over':''}">${fmt(spent)} / ${fmt(c.budget)}${over? '（超支 ' + fmt(spent-c.budget) + '）' : ''}</div>
-        <div class="bar"><div class="bar-fill" style="width:${pct}%;background:${over?'var(--danger)':color}"></div></div>
+        <div class="catamt">${fmt(spent)}</div>
+        <div class="bar"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
       </div>`;
     }).join('');
   }
 
-  // metrics
-  const totalBudget = data.categories.reduce((s,c)=>s+c.budget,0);
+  // metrics (single lump-sum budget)
+  const totalBudget = data.totalBudget || 0;
   const totalSpent = data.categories.reduce((s,c)=>s+spentByCategory(c.id),0);
   const remain = totalBudget - totalSpent;
   document.getElementById('mTotalBudget').textContent = fmt(totalBudget);
@@ -257,15 +286,22 @@ function render(){
   remainEl.textContent = (remain<0? '−':'') + fmt(Math.abs(remain));
   remainEl.className = 'value' + (remain<0?' over':'');
 
-  // alert
-  const overCats = data.categories.filter(c => spentByCategory(c.id) > c.budget);
+  // today's date + daily remaining budget
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
+  document.getElementById('todayDate').textContent = `今天：${y}年${m+1}月${d}日`;
+  const daysInMonth = new Date(y, m+1, 0).getDate();
+  const daysLeft = Math.max(1, daysInMonth - d + 1);
+  const dailyRemain = remain / daysLeft;
+  const dailyEl = document.getElementById('mDailyRemain');
+  dailyEl.textContent = (dailyRemain<0? '−':'') + fmt(Math.abs(dailyRemain));
+  dailyEl.className = 'value' + (dailyRemain<0?' over':'');
+
+  // alert (based on total budget only)
   const alertBox = document.getElementById('alertBox');
-  if(overCats.length>0){
+  if(totalBudget>0 && totalSpent > totalBudget){
     alertBox.classList.add('show');
-    document.getElementById('alertDetail').innerHTML = overCats.map(c=>{
-      const s = spentByCategory(c.id);
-      return `${c.name}：已支出 ${fmt(s)}，超出預算 ${fmt(s-c.budget)}`;
-    }).join('<br>');
+    document.getElementById('alertDetail').innerHTML = `本月總預算 ${fmt(totalBudget)}，已支出 ${fmt(totalSpent)}，超支 ${fmt(totalSpent-totalBudget)}`;
   } else {
     alertBox.classList.remove('show');
   }
@@ -333,17 +369,18 @@ function exportExcel(){
   if(data.categories.length===0 && data.expenses.length===0){
     alert('目前尚無資料可匯出'); return;
   }
+  const grandTotalSpent = data.categories.reduce((s,c)=>s+spentByCategory(c.id),0);
   const summaryRows = data.categories.map(c=>{
     const spent = spentByCategory(c.id);
     return {
       '分類': c.name,
-      '月預算': c.budget,
       '已支出': spent,
-      '剩餘': c.budget - spent,
-      '狀態': spent > c.budget ? '超支' : '正常',
-      '達成率(%)': c.budget>0 ? Math.round(spent/c.budget*1000)/10 : 0
+      '佔比(%)': grandTotalSpent>0 ? Math.round(spent/grandTotalSpent*1000)/10 : 0
     };
   });
+  summaryRows.push({ '分類': '本月總預算', '已支出': data.totalBudget || 0, '佔比(%)': '' });
+  summaryRows.push({ '分類': '總支出', '已支出': grandTotalSpent, '佔比(%)': '' });
+  summaryRows.push({ '分類': '剩餘/超支', '已支出': (data.totalBudget||0) - grandTotalSpent, '佔比(%)': '' });
   const expenseRows = [...data.expenses].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>{
     const cat = data.categories.find(c=>c.id===e.categoryId);
     return { '日期': e.date, '分類': cat? cat.name : '（已刪除）', '金額': e.amount, '備註': e.note || '' };
