@@ -169,6 +169,8 @@
 <script>
 const PALETTE = ['#0F6E56','#378ADD','#D85A30','#7F77DD','#D4537E','#639922','#BA7517','#5F5E5A'];
 let data = { categories: [], expenses: [] };
+let editingCatId = null;
+let editingExpId = null;
 const SEED_DATA = {
   seedVersion: 'v1-public',
   totalBudget: 0,
@@ -220,8 +222,29 @@ function setTotalBudget(){
 }
 
 function removeCategory(id){
+  if(!confirm('確定要刪除這個分類嗎？該分類底下的支出紀錄也會一併刪除。')) return;
   data.categories = data.categories.filter(c => c.id !== id);
   data.expenses = data.expenses.filter(e => e.categoryId !== id);
+  save(); render();
+}
+
+function editCategory(id){
+  editingCatId = id;
+  render();
+}
+
+function cancelEditCategory(){
+  editingCatId = null;
+  render();
+}
+
+function saveCategoryEdit(id){
+  const input = document.getElementById('editCatInput_' + id);
+  const name = input.value.trim();
+  if(!name){ alert('分類名稱不能是空的'); return; }
+  const cat = data.categories.find(c => c.id === id);
+  if(cat) cat.name = name;
+  editingCatId = null;
   save(); render();
 }
 
@@ -239,7 +262,35 @@ function addExpense(){
 }
 
 function removeExpense(id){
+  if(!confirm('確定要刪除這筆支出嗎？')) return;
   data.expenses = data.expenses.filter(e => e.id !== id);
+  save(); render();
+}
+
+function editExpense(id){
+  editingExpId = id;
+  render();
+}
+
+function cancelEditExpense(){
+  editingExpId = null;
+  render();
+}
+
+function saveExpenseEdit(id){
+  const categoryId = document.getElementById('editExpCat_' + id).value;
+  const amount = parseFloat(document.getElementById('editExpAmt_' + id).value);
+  const date = document.getElementById('editExpDate_' + id).value;
+  const note = document.getElementById('editExpNote_' + id).value.trim();
+  if(!isFinite(amount) || amount <= 0){ alert('請輸入有效金額'); return; }
+  const exp = data.expenses.find(e => e.id === id);
+  if(exp){
+    exp.categoryId = categoryId;
+    exp.amount = amount;
+    exp.date = date || exp.date;
+    exp.note = note;
+  }
+  editingExpId = null;
   save(); render();
 }
 
@@ -265,10 +316,24 @@ function render(){
       const spent = spentByCategory(c.id);
       const pct = Math.min(100, spent/totalSpentForPct*100);
       const color = PALETTE[i % PALETTE.length];
+      if(editingCatId === c.id){
+        return `<div class="catitem">
+          <div class="row" style="margin-bottom:8px;">
+            <input id="editCatInput_${c.id}" value="${c.name.replace(/"/g,'&quot;')}" style="flex:1;">
+          </div>
+          <div class="row" style="margin-bottom:0;">
+            <button class="primary" style="flex:1;" onclick="saveCategoryEdit('${c.id}')">儲存</button>
+            <button style="flex:1;" onclick="cancelEditCategory()">取消</button>
+          </div>
+        </div>`;
+      }
       return `<div class="catitem">
         <div class="catitem-top">
           <span class="catname"><span class="dot" style="background:${color}"></span>${c.name}</span>
-          <button class="ghost" onclick="removeCategory('${c.id}')" aria-label="刪除分類">刪除</button>
+          <span>
+            <button class="ghost" onclick="editCategory('${c.id}')" aria-label="編輯分類">編輯</button>
+            <button class="ghost" onclick="removeCategory('${c.id}')" aria-label="刪除分類">刪除</button>
+          </span>
         </div>
         <div class="catamt">${fmt(spent)}</div>
         <div class="bar"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
@@ -316,11 +381,28 @@ function render(){
     empty.style.display='none';
     body.innerHTML = sorted.slice(0,10).map(e=>{
       const cat = data.categories.find(c=>c.id===e.categoryId);
+      if(editingExpId === e.id){
+        const catOptions = data.categories.map(c=>`<option value="${c.id}" ${c.id===e.categoryId?'selected':''}>${c.name}</option>`).join('');
+        return `<tr>
+          <td colspan="4" style="padding:10px 8px;">
+            <div class="row" style="margin-bottom:8px;">
+              <select id="editExpCat_${e.id}" style="flex:1;">${catOptions}</select>
+              <input id="editExpAmt_${e.id}" type="number" min="0" value="${e.amount}" style="max-width:110px;">
+              <input id="editExpDate_${e.id}" type="date" value="${e.date}" style="max-width:150px;">
+            </div>
+            <div class="row" style="margin-bottom:0;">
+              <input id="editExpNote_${e.id}" value="${(e.note||'').replace(/"/g,'&quot;')}" placeholder="備註" style="flex:1;">
+              <button class="primary" onclick="saveExpenseEdit('${e.id}')">儲存</button>
+              <button onclick="cancelEditExpense()">取消</button>
+            </div>
+          </td>
+        </tr>`;
+      }
       return `<tr>
         <td>${e.date}</td>
         <td>${cat? cat.name : '（已刪除）'}</td>
         <td style="color:var(--text-sec)">${e.note||'—'}</td>
-        <td>${fmt(e.amount)} <button class="ghost" onclick="removeExpense('${e.id}')" aria-label="刪除">✕</button></td>
+        <td>${fmt(e.amount)} <button class="ghost" onclick="editExpense('${e.id}')" aria-label="編輯">編輯</button><button class="ghost" onclick="removeExpense('${e.id}')" aria-label="刪除">✕</button></td>
       </tr>`;
     }).join('');
   }
